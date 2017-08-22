@@ -231,3 +231,21 @@ message GetLastRangesRsp {
 message SetLogLevel {
     optional int32 newLevel = 1 [(gogoproto.nullable) = false];
 }
+
+enum FieldType {
+    Uint8  = 0;
+    Uint16 = 1;
+    Uint32 = 2;
+    Uint64 = 3;
+    Text   = 4;
+}
+
+message FieldDef {
+    required string name    = 1;
+    required FieldType type = 2;
+}
+message IndexDef {
+    optional string        name         = 1 [(gogoproto.nullable) = false];
+    optional string        keyPattern   = 2 [(gogoproto.nullable) = false];
+	repeated FieldDef      fields       = 3;
+}

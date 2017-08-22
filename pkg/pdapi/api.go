@@ -17,6 +17,7 @@ import (
 	"encoding/json"
 	"io"
 	"io/ioutil"
+	"regexp"
 
 	"github.com/deepfabric/elasticell/pkg/pb/metapb"
 	"github.com/deepfabric/elasticell/pkg/pb/pdpb"
@@ -87,6 +88,11 @@ type Service interface {
 	GetOperator(id uint64) (interface{}, error)
 
 	GetOperators() ([]interface{}, error)
+
+	ListIndex() ([]*pdpb.IndexDef, error)
+	GetIndex(id string) (*pdpb.IndexDef, error)
+	CreateIndex(idxDef *pdpb.IndexDef) error
+	DeleteIndex(id string) error
 }
 
 // TransferLeader transfer leader to spec peer
@@ -103,6 +109,18 @@ func readTransferLeader(r io.ReadCloser) (*TransferLeader, error) {
 func readSetLogLevel(r io.ReadCloser) (*SetLogLevel, error) {
 	value := &SetLogLevel{}
 	return value, readJSON(r, value)
+}
+
+func readIndexDef(r io.ReadCloser) (value *pdpb.IndexDef, err error) {
+	value = &pdpb.IndexDef{}
+	if err = readJSON(r, value); err != nil {
+		return
+	}
+	//input validation
+	if _, err = regexp.Compile(value.KeyPattern); err != nil {
+		return
+	}
+	return
 }
 
 func readJSON(r io.ReadCloser, data interface{}) error {
