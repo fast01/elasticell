@@ -192,6 +192,7 @@ message StoreHeartbeatReq {
 message StoreHeartbeatRsp {
     optional ResponseHeader header      = 1 [(gogoproto.nullable) = false];
     optional SetLogLevel    setLogLevel = 2 [(gogoproto.nullable) = true];
+    repeated IndexDef       indices     = 3 [(gogoproto.nullable) = true];
 }
 
 message AskSplitReq {

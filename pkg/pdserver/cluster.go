@@ -125,7 +125,12 @@ func (s *Server) storeHeartbeat(req *pdpb.StoreHeartbeatReq) (*pdpb.StoreHeartbe
 		return nil, err
 	}
 
-	return c.doStoreHeartbeat(req)
+	rsp, err := c.doStoreHeartbeat(req)
+	if err != nil {
+		return nil, err
+	}
+	rsp.Indices, err = s.ListIndex()
+	return rsp, err
 }
 
 func (s *Server) askSplit(req *pdpb.AskSplitReq) (*pdpb.AskSplitRsp, error) {

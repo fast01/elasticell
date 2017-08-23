@@ -26,6 +26,7 @@ import (
 	"github.com/deepfabric/elasticell/pkg/pd"
 	"github.com/deepfabric/elasticell/pkg/util"
 	"github.com/deepfabric/etcd/raft"
+	"github.com/deepfabric/indexer"
 	"golang.org/x/net/context"
 )
 
@@ -62,6 +63,11 @@ type PeerReplicate struct {
 	cancelTaskIds []uint64
 
 	metrics localMetrics
+
+	indexer      *indexer.Indexer
+	createIndexC chan []*pdpb.IndexDef
+	deleteIndexC chan []*pdpb.IndexDef
+	//TODO(yzc): queryReqC and queryRspC
 }
 
 func createPeerReplicate(store *Store, cell *metapb.Cell) (*PeerReplicate, error) {
@@ -124,6 +130,8 @@ func newPeerReplicate(store *Store, cell *metapb.Cell, peerID uint64) (*PeerRepl
 	pr.applyResults = &queue.Queue{}
 	pr.requests = &queue.Queue{}
 	pr.proposes = &queue.Queue{}
+	pr.createIndexC = make(chan []*pdpb.IndexDef, defaultChanBuf)
+	pr.deleteIndexC = make(chan []*pdpb.IndexDef, defaultChanBuf)
 
 	pr.store = store
 	pr.pendingReads = &readIndexQueue{
@@ -132,6 +140,16 @@ func newPeerReplicate(store *Store, cell *metapb.Cell, peerID uint64) (*PeerRepl
 		readyCnt: 0,
 	}
 	pr.peerHeartbeatsMap = newPeerHeartbeatsMap()
+
+	indexerConf := &indexer.Conf{
+		T0mCap:   store.cfg.Index.T0mCap,
+		LeafCap:  store.cfg.Index.LeafCap,
+		IntraCap: store.cfg.Index.IntraCap,
+	}
+	pr.indexer, err = indexer.NewIndexer(store.cfg.Index.IndexDataPath, indexerConf, false)
+	if err != nil {
+		return nil, err
+	}
 
 	// If this region has only one peer and I am the one, campaign directly.
 	if len(cell.Peers) == 1 && cell.Peers[0].StoreID == store.id {
@@ -147,6 +165,9 @@ func newPeerReplicate(store *Store, cell *metapb.Cell, peerID uint64) (*PeerRepl
 	id, _ := store.runner.RunCancelableTask(pr.readyToServeRaft)
 	pr.cancelTaskIds = append(pr.cancelTaskIds, id)
 
+
+	id, _ = store.runner.RunCancelableTask(pr.readyToServeIndex)
+	pr.cancelTaskIds = append(pr.cancelTaskIds, id)
 	return pr, nil
 }
 
@@ -357,6 +378,10 @@ func (pr *PeerReplicate) destroy() error {
 		pr.cellID)
 
 	pr.stopEventLoop()
+
+	if err := pr.indexer.Destroy(); err != nil {
+		return err
+	}
 
 	wb := pr.store.engine.NewWriteBatch()
 

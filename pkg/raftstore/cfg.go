@@ -46,6 +46,8 @@ type Cfg struct {
 
 	Raft *RaftCfg `json:"raft"`
 
+	Index *IndexCfg `json:"index"`
+
 	EnableRequestMetrics bool `json:"enableRequestMetrics"`
 }
 
@@ -89,4 +91,12 @@ type RaftCfg struct {
 	MaxSizePerEntry uint64 `json:"maxSizePerEntry"`
 	MaxInflightMsgs int    `json:"maxInflightMsgs"`
 	BaseTick        int    `json:"baseTick"`
+}
+
+// IndexCfg is the cfg for index
+type IndexCfg struct {
+	IndexDataPath string `json:"indexDataPath"`
+	T0mCap        int    `json:"t0mCap"`
+	LeafCap       int    `json:"leafCap"`
+	IntraCap      int    `json:"intraCap"`
 }

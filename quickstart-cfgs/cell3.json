@@ -53,8 +53,14 @@
                 "baseTick": 1000
             },
             "applyWorkerCount": 8,
+            "enableRequestMetrics": false,
 
-            "enableRequestMetrics": false
+            "index": {
+                "indexDataPath": "/apps/deepfabric/cell3/index",
+                "t0mCap": 1000,
+                "leafCap": 100,
+                "intraCap": 4
+            }                                
         }
     },
 
