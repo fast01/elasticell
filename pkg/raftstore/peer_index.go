@@ -14,48 +14,58 @@
 package raftstore
 
 import (
+	"fmt"
+	"os"
+	"path/filepath"
+	"reflect"
+
 	"github.com/deepfabric/elasticell/pkg/log"
 	"github.com/deepfabric/elasticell/pkg/pb/pdpb"
+	"github.com/deepfabric/elasticell/pkg/util"
+	"github.com/deepfabric/indexer"
 	"github.com/deepfabric/indexer/cql"
 	"golang.org/x/net/context"
 )
+
+func (pr *PeerReplicate) loadIndices() (err error) {
+	indexerConf := &indexer.Conf{
+		T0mCap:   pr.store.cfg.Index.T0mCap,
+		LeafCap:  pr.store.cfg.Index.LeafCap,
+		IntraCap: pr.store.cfg.Index.IntraCap,
+	}
+	indicesDir := filepath.Join(pr.store.cfg.Index.IndexDataPath, fmt.Sprintf("%d", pr.cellID))
+	pr.indexer, err = indexer.NewIndexer(indicesDir, indexerConf, false)
+	if err != nil {
+		return
+	}
+	indicesFp := filepath.Join(indicesDir, "indices.json")
+	err = util.FileUnmarshal(indicesFp, &pr.indices)
+	if os.IsNotExist(err) {
+		err = pr.persistIndices(pr.indices)
+	}
+	return
+}
+
+func (pr *PeerReplicate) persistIndices(indices map[string]*pdpb.IndexDef) (err error) {
+	indicesFp := filepath.Join(pr.store.cfg.Index.IndexDataPath, fmt.Sprintf("%d", pr.cellID), "indices.json")
+	if err = util.FileMarshal(indicesFp, indices); err != nil {
+		log.Errorf("raftstore[cell-%d]: failed to persist indices definion\n%v",
+			pr.cellID, err)
+	}
+	return
+}
 
 func (pr *PeerReplicate) readyToServeIndex(ctx context.Context) {
 	for {
 		select {
 		case <-ctx.Done():
-			close(pr.createIndexC)
-			close(pr.deleteIndexC)
+			close(pr.indicesC)
 			log.Infof("raftstore[cell-%d]: handle serve query stopped",
 				pr.cellID)
 			return
-		case toCreate := <-pr.createIndexC:
-			for _, idxDef := range toCreate {
-				//creation shall be idempotent
-				docProt := pr.indexer.GetDocProt(idxDef.GetName())
-				if docProt != nil {
-					isSame := isSameScheme(idxDef, docProt)
-					if isSame {
-						log.Infof("raftstore[cell-%d]: skipped creating index %s", pr.cellID, idxDef.GetName())
-						continue
-					} else if err := pr.indexer.DestroyIndex(idxDef.GetName()); err != nil {
-						log.Errorf("raftstore[cell-%d]: failed to destroy conflicting index %s\n%v",
-							pr.cellID, idxDef.GetName(), err)
-						continue
-					} else {
-						log.Infof("raftstore[cell-%d]: destroyed conflicting index %s", pr.cellID, idxDef.GetName())
-					}
-				}
-				docProt = convertToDocProt(idxDef)
-				if err := pr.indexer.CreateIndex(docProt); err != nil {
-					log.Errorf("raftstore[cell-%d]: failed to create index %s\n%v",
-						pr.cellID, idxDef.GetName(), err)
-				} else {
-					log.Infof("raftstore[cell-%d]: created index %v", pr.cellID, idxDef)
-				}
-			}
-		case toDelete := <-pr.deleteIndexC:
-			for _, idxDef := range toDelete {
+		case indicesNew := <-pr.indicesC:
+			delta := diffIndices(pr.indices, indicesNew)
+			for _, idxDef := range delta.toDelete {
 				//deletion shall be idempotent
 				if err := pr.indexer.DestroyIndex(idxDef.GetName()); err != nil {
 					log.Errorf("raftstore[cell-%d]: failed to destroy index %s\n%v",
@@ -64,46 +74,24 @@ func (pr *PeerReplicate) readyToServeIndex(ctx context.Context) {
 					log.Infof("raftstore[cell-%d]: deleted index %v", pr.cellID, idxDef)
 				}
 			}
+			for _, idxDef := range delta.toCreate {
+				//creation shall be idempotent
+				docProt := convertToDocProt(idxDef)
+				if err := pr.indexer.CreateIndex(docProt); err != nil {
+					log.Errorf("raftstore[cell-%d]: failed to create index %s\n%v",
+						pr.cellID, idxDef.GetName(), err)
+				} else {
+					log.Infof("raftstore[cell-%d]: created index %v", pr.cellID, idxDef)
+				}
+			}
+			if len(delta.toDelete) != 0 || len(delta.toCreate) != 0 {
+				if err := pr.persistIndices(indicesNew); err != nil {
+					return
+				}
+				pr.indices = indicesNew
+			}
 		}
 	}
-}
-
-func isSameScheme(idxDef *pdpb.IndexDef, docProt *cql.DocumentWithIdx) bool {
-	types1 := make(map[string]pdpb.FieldType)
-	types2 := make(map[string]pdpb.FieldType)
-	for _, f := range idxDef.Fields {
-		types1[f.GetName()] = f.GetType()
-	}
-	for _, f := range docProt.UintProps {
-		var t pdpb.FieldType
-		switch f.ValLen {
-		case 1:
-			t = pdpb.Uint8
-		case 2:
-			t = pdpb.Uint16
-		case 4:
-			t = pdpb.Uint32
-		case 8:
-			t = pdpb.Uint64
-		default:
-			log.Errorf("invalid ValLen %d of docProt %v", f.ValLen, docProt)
-			return true
-		}
-		types2[f.Name] = t
-	}
-	for _, f := range docProt.StrProps {
-		types2[f.Name] = pdpb.Text
-	}
-	if len(types1) != len(types2) {
-		return false
-	}
-	for k, v1 := range types1 {
-		if v2, ok := types2[k]; !ok || v1 != v2 {
-			return false
-		}
-	}
-
-	return true
 }
 
 func convertToDocProt(idxDef *pdpb.IndexDef) (docProt *cql.DocumentWithIdx) {
@@ -130,6 +118,36 @@ func convertToDocProt(idxDef *pdpb.IndexDef) (docProt *cql.DocumentWithIdx) {
 		default:
 			log.Errorf("invalid filed type %v of idxDef %v", f.GetType().String(), idxDef)
 			continue
+		}
+	}
+	return
+}
+
+type IndicesDiff struct {
+	toDelete []*pdpb.IndexDef
+	toCreate []*pdpb.IndexDef
+}
+
+//detect difference of indices and indicesNew
+func diffIndices(indices, indicesNew map[string]*pdpb.IndexDef) (delta *IndicesDiff) {
+	delta = &IndicesDiff{
+		toDelete: make([]*pdpb.IndexDef, 0),
+		toCreate: make([]*pdpb.IndexDef, 0),
+	}
+	var ok bool
+	var name string
+	var idxDefCur, idxDefNew *pdpb.IndexDef
+	for name, idxDefCur = range indices {
+		if idxDefNew, ok = indicesNew[name]; !ok {
+			delta.toDelete = append(delta.toDelete, idxDefCur)
+		} else if !reflect.DeepEqual(idxDefCur, idxDefNew) {
+			delta.toDelete = append(delta.toDelete, idxDefCur)
+			delta.toCreate = append(delta.toCreate, idxDefNew)
+		}
+	}
+	for _, idxDefNew = range indicesNew {
+		if _, ok := indices[idxDefNew.GetName()]; !ok {
+			delta.toCreate = append(delta.toCreate, idxDefNew)
 		}
 	}
 	return

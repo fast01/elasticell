@@ -912,31 +912,14 @@ func (s *Store) handleStoreHeartbeat() error {
 		log.SetLevel(log.Level(rsp.SetLogLevel.NewLevel))
 	}
 
-	log.Infof("heartbeat-store[%d]: detect difference of indices and indicesNew", s.GetID())
-	//detect difference of indices and indicesNew
+	//update indices definion, and broadcast it to all cells
 	indicesNew := make(map[string]*pdpb.IndexDef)
-	toDelete := make([]*pdpb.IndexDef, 0)
-	toCreate := make([]*pdpb.IndexDef, 0)
 	for _, idxDefNew := range rsp.Indices {
 		indicesNew[idxDefNew.GetName()] = idxDefNew
-		if _, ok := s.indices[idxDefNew.GetName()]; !ok {
-			toCreate = append(toCreate, idxDefNew)
-		}
-	}
-	for name, idxDefCur := range s.indices {
-		if _, ok := indicesNew[name]; !ok {
-			toDelete = append(toDelete, idxDefCur)
-		}
 	}
 	s.indices = indicesNew
-	//broadcase difference to all cells
 	err = s.replicatesMap.foreach(func(pr *PeerReplicate) (bool, error) {
-		if len(toCreate) != 0 {
-			pr.createIndexC <- toCreate
-		}
-		if len(toDelete) != 0 {
-			pr.deleteIndexC <- toDelete
-		}
+		pr.indicesC <- s.indices
 		return true, nil
 	})
 

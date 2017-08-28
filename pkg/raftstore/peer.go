@@ -64,9 +64,9 @@ type PeerReplicate struct {
 
 	metrics localMetrics
 
-	indexer      *indexer.Indexer
-	createIndexC chan []*pdpb.IndexDef
-	deleteIndexC chan []*pdpb.IndexDef
+	indicesC chan map[string]*pdpb.IndexDef
+	indices  map[string]*pdpb.IndexDef
+	indexer  *indexer.Indexer
 	//TODO(yzc): queryReqC and queryRspC
 }
 
@@ -130,8 +130,6 @@ func newPeerReplicate(store *Store, cell *metapb.Cell, peerID uint64) (*PeerRepl
 	pr.applyResults = &queue.Queue{}
 	pr.requests = &queue.Queue{}
 	pr.proposes = &queue.Queue{}
-	pr.createIndexC = make(chan []*pdpb.IndexDef, defaultChanBuf)
-	pr.deleteIndexC = make(chan []*pdpb.IndexDef, defaultChanBuf)
 
 	pr.store = store
 	pr.pendingReads = &readIndexQueue{
@@ -141,13 +139,9 @@ func newPeerReplicate(store *Store, cell *metapb.Cell, peerID uint64) (*PeerRepl
 	}
 	pr.peerHeartbeatsMap = newPeerHeartbeatsMap()
 
-	indexerConf := &indexer.Conf{
-		T0mCap:   store.cfg.Index.T0mCap,
-		LeafCap:  store.cfg.Index.LeafCap,
-		IntraCap: store.cfg.Index.IntraCap,
-	}
-	pr.indexer, err = indexer.NewIndexer(store.cfg.Index.IndexDataPath, indexerConf, false)
-	if err != nil {
+	pr.indicesC = make(chan map[string]*pdpb.IndexDef, defaultChanBuf)
+	pr.indices = make(map[string]*pdpb.IndexDef)
+	if err = pr.loadIndices(); err != nil {
 		return nil, err
 	}
 
