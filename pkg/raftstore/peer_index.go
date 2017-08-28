@@ -68,7 +68,7 @@ func (pr *PeerReplicate) readyToServeIndex(ctx context.Context) {
 			for _, idxDef := range delta.toDelete {
 				//deletion shall be idempotent
 				if err := pr.indexer.DestroyIndex(idxDef.GetName()); err != nil {
-					log.Errorf("raftstore[cell-%d]: failed to destroy index %s\n%v",
+					log.Errorf("raftstore[cell-%d]: failed to delete index %s\n%v",
 						pr.cellID, idxDef.GetName(), err)
 				} else {
 					log.Infof("raftstore[cell-%d]: deleted index %v", pr.cellID, idxDef)
