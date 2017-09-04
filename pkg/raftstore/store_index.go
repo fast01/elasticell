@@ -126,35 +126,27 @@ func (s *Store) readyToServeIndex(ctx context.Context) {
 				if idxKeyReq = idxReq.GetIdxKey(); idxKeyReq != nil {
 					if pr := s.getPeerReplicate(idxKeyReq.CellID); pr == nil {
 						//TODO(yzc): add metric?
-					} else {
-						if idxKeyReq.IsDel {
-							for _, key := range idxKeyReq.GetUserKeys() {
-								if err = s.deleteIndexedKey(idxKeyReq.GetIdxName(), key); err != nil {
-									log.Errorf("index-store[%d]: failed to delete indexed key %v from index %s\n%v",
-										s.GetID(), key, idxKeyReq.GetIdxName(), err)
-									continue
-								}
-							}
-						} else {
-							for _, key := range idxKeyReq.GetUserKeys() {
-								if err = s.deleteIndexedKey(idxKeyReq.GetIdxName(), key); err != nil {
-									log.Errorf("index-store[%d]: failed to delete indexed key %v from index %s\n%v",
-										s.GetID(), key, idxKeyReq.GetIdxName(), err)
-									continue
-								}
-								doc := cnemoGetAll(key) //TODO(yzc): new cnemo API
-								if err = pr.indexer.Insert(doc); err != nil {
-									log.Errorf("index-store[%d]: failed to add key %s to index %s\n%v", s.GetID(), key, idxKeyReq.GetIdxName(), err)
-								}
+						continue
+					}
+					for _, key := range idxKeyReq.GetUserKeys() {
+						if err = s.deleteIndexedKey(idxKeyReq.GetIdxName(), key); err != nil {
+							log.Errorf("index-store[%d]: failed to delete indexed key %v from index %s\n%v",
+								s.GetID(), key, idxKeyReq.GetIdxName(), err)
+							continue
+						}
+						if !idxKeyReq.IsDel {
+							doc := cnemoGetAll(key) //TODO(yzc): new cnemo API
+							if err = pr.indexer.Insert(doc); err != nil {
+								log.Errorf("index-store[%d]: failed to add key %s to index %s\n%v", s.GetID(), key, idxKeyReq.GetIdxName(), err)
 							}
 						}
 					}
 				}
 				if idxSplitReq = idxReq.GetIdxSplit(); idxSplitReq != nil {
-
+					s.splitIndices(idxSplitReq)
 				}
 				if _, err = listEng.LPop(idxReqQueueKey, 0); err != nil {
-					log.Errorf("index-store[%d]: failed to lpop idxReqUeueu\n%v", s.GetID(), err)
+					log.Errorf("index-store[%d]: failed to LPop idxReqQeue\n%v", s.GetID(), err)
 					break
 				}
 			}
@@ -162,8 +154,8 @@ func (s *Store) readyToServeIndex(ctx context.Context) {
 	}
 }
 
-func (s *Store) deleteIndexedKey(idxNameIn, key string) (err error) {
-	idxName, docID := cnemoGetMetaVal(key) //TODO(yzc): new cnemo API
+func (s *Store) deleteIndexedKey(pr *PeerReplicate, idxNameIn string, key []byte) (err error) {
+	idxName, docID := cnemoGetMetaVal(key) //TODO(yzc): new cnemo API. key convert???
 	if idxName != idxNameIn {
 		//TODO(yzc): add metric?
 	}
@@ -181,9 +173,17 @@ func (s *Store) deleteIndexedKey(idxNameIn, key string) (err error) {
 	return
 }
 
-func (s *Store) splitIndices(cellID int64) (err error) {
-	cell := newPR.getCell()
-	pr.store.engine.GetDataEngine().Scan(cell.GetStart(), cell.GetEnd(), func(key, metaVal []byte) {
+func (s *Store) splitIndices(idxSplitReq *pdpb.IndexSplitRequest) (err error) {
+	var pr, newPR *PeerReplicate
+	if pr = s.getPeerReplicate(idxSplitReq.LeftCellID); pr == nil {
+		//TODO(yzc): add metric?
+		return
+	}
+	if newPR = s.getPeerReplicate(idxSplitReq.RightCellID); pr == nil {
+		//TODO(yzc): add metric?
+		return
+	}
+	s.engine.GetDataEngine().Scan(newPR.GetStart(), newPR.GetEnd(), func(key, metaVal []byte) {
 		idxName, docID := metaVal //parse metaVal
 		if idxName != "" {
 			docID, existing_field_value_slice, found := cnemoHgetallExt(key) //TODO(yzc): new cnemo API

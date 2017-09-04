@@ -510,14 +510,6 @@ func (s *Store) doApplySplit(cellID uint64, result *splitResult) {
 			err)
 	}
 
-	err = pr.splitIndices(newPR)
-	if err != nil {
-		log.Fatalf("raftstore-apply[cell-%d]: split indices failed, newCell=<%d> errors:\n %+v",
-			cellID,
-			right,
-			err)
-	}
-
 	// If this peer is the leader of the cell before split, it's intuitional for
 	// it to become the leader of new split cell.
 	// The ticks are accelerated here, so that the peer for the new split cell

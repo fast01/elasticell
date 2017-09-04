@@ -255,7 +255,7 @@ message IndexDef {
 message IndexKeyRequest {
 	optional uint64 cellID   = 1 [(gogoproto.nullable) = false];
     optional string idxName  = 2 [(gogoproto.nullable) = false];
-	repeated string userKeys = 3;
+	repeated bytes userKeys = 3;
 	optional bool isDel      = 4 [(gogoproto.nullable) = false];
 }
 
