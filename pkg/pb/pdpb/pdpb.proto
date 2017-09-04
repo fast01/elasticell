@@ -245,8 +245,28 @@ message FieldDef {
     required string name    = 1;
     required FieldType type = 2;
 }
+
 message IndexDef {
     optional string        name         = 1 [(gogoproto.nullable) = false];
     optional string        keyPattern   = 2 [(gogoproto.nullable) = false];
 	repeated FieldDef      fields       = 3;
+}
+
+message IndexKeyRequest {
+	optional uint64 cellID   = 1 [(gogoproto.nullable) = false];
+    optional string idxName  = 2 [(gogoproto.nullable) = false];
+	repeated string userKeys = 3;
+	optional bool isDel      = 4 [(gogoproto.nullable) = false];
+}
+
+message IndexSplitRequest {
+	optional uint64 leftCellID  = 1 [(gogoproto.nullable) = false];
+	optional uint64 rightCellID = 2 [(gogoproto.nullable) = false];
+	optional bytes rightStart   = 3;
+	optional bytes rightEnd     = 4;
+}
+
+message IndexRequest {
+    optional IndexKeyRequest idxKey     = 1;
+    optional IndexSplitRequest idxSplit = 2;
 }

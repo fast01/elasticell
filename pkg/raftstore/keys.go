@@ -36,6 +36,7 @@ const (
 	raftLogSuffix    = 0x01
 	raftStateSuffix  = 0x02
 	applyStateSuffix = 0x03
+	nextDocIDSuffix  = 0x04
 )
 
 // local is in (0x01, 0x02);
@@ -69,6 +70,13 @@ var (
 	cellMetaPrefixKey      = []byte{localPrefix, cellMetaPrefix}
 	cellMetaMinKey         = []byte{localPrefix, cellMetaPrefix}
 	cellMetaMaxKey         = []byte{localPrefix, cellMetaPrefix + 1}
+
+	// docID -> userKey
+	cellDocIDPrefix    byte = 0x04
+	cellDocIDPrefixKey      = []byte{localPrefix, cellDocIDPrefix}
+
+	// index request queue key
+	idxReqQueueKey = []byte{localPrefix, 0x05}
 )
 
 // GetStoreIdentKey return key of StoreIdent
@@ -182,6 +190,22 @@ func getCellRaftPrefix(cellID uint64) []byte {
 
 func getRaftLogKey(cellID uint64, logIndex uint64) []byte {
 	return getCellIDKey(cellID, raftLogSuffix, 8, logIndex)
+}
+
+func getCellNextDocIDKey(cellID uint64) []byte {
+	return getCellIDKey(cellID, nextDocIDSuffix, 0, 0)
+}
+
+func getDocIDKey(docID uint64) []byte {
+	buf := goetty.NewByteBuf(len(cellDocIDPrefixKey) + 8)
+	buf.Write(cellDocIDPrefixKey)
+	buf.WriteInt64(int64(docID))
+	_, data, _ := buf.ReadBytes(buf.Readable())
+	return data
+}
+
+func getIdxReqQueueKey() []byte {
+	return idxReqQueueKey
 }
 
 func getRaftLogIndex(key []byte) (uint64, error) {

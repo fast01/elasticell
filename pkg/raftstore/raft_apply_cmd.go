@@ -15,6 +15,7 @@ package raftstore
 
 import (
 	"bytes"
+	"encoding/binary"
 	"errors"
 
 	"github.com/deepfabric/elasticell/pkg/log"
@@ -24,6 +25,7 @@ import (
 	"github.com/deepfabric/elasticell/pkg/pb/raftcmdpb"
 	"github.com/deepfabric/elasticell/pkg/storage"
 	"github.com/deepfabric/elasticell/pkg/util"
+	"github.com/fagongzi/goetty/protocol/redis"
 )
 
 type execContext struct {
@@ -356,14 +358,97 @@ func (d *applyDelegate) doExecRaftGC(ctx *execContext) (*raftcmdpb.RaftCMDRespon
 
 func (d *applyDelegate) execWriteRequest(ctx *execContext) *raftcmdpb.RaftCMDResponse {
 	resp := new(raftcmdpb.RaftCMDResponse)
-
+	var err error
 	for _, req := range ctx.req.Requests {
 		log.Debugf("req: apply raft log. cell=<%d>, uuid=<%d>",
 			d.cell.ID,
 			req.UUID)
 
 		if h, ok := d.store.redisWriteHandles[req.Type]; ok {
-			resp.Responses = append(resp.Responses, h(ctx, req))
+			var idxName string
+			var key []byte
+			var rsp *raftcmdpb.Response
+			var docIDNew uint64
+			if req.Type == raftcmdpb.HMSet || req.Type == raftcmdpb.HSet {
+				cmd := redis.Command(req.Cmd)
+				args := cmd.Args()
+				key = args[0]
+				for name, reExp := range d.store.reExps {
+					matched := reExp.Match(key)
+					if matched {
+						idxName = name
+						//PeerReplicate <- idxName, args[1:]; allocate or reuse docID
+						break
+					}
+				}
+				if idxName != "" {
+					pr := d.store.getPeerReplicate(d.cell.ID)
+					if pr == nil {
+						log.Errorf("raftstore-apply[cell-%d]: cell not exist", d.cell.ID)
+						//TODO(yzc): "return nil" looks incorrect?
+						return nil
+					}
+					docIDNew, err = pr.allocateDocID()
+					docIDBytes := make([]byte, 8)
+					binary.BigEndian.PutUint64(docIDBytes, docIDNew+1)
+					err = ctx.wb.Set(getCellNextDocIDKey(d.cell.ID), docIDBytes)
+					if err != nil {
+						log.Errorf("raftstore-apply[cell-%d]: failed to update nextDocID to %v",
+							d.cell.ID,
+							docIDNew+1)
+						return nil
+					}
+					if err != nil {
+						log.Errorf("raftstore-apply[cell-%d]: failed to allocate docID, error: %v",
+							d.cell.ID,
+							err)
+						return nil
+					}
+					docID, existing_field_value_slice, found := cnemoHgetallExt(key)                  //TODO(yzc): new cnemo API
+					rsp = cnemoHsetallExt(key, req.Cmd+existing_field_value_slice, idxName, docIDNew) //TODO(yzc): new cnemo API
+					if rsp.ErrorResult == nil && len(rsp.ErrorResults) == 0 {
+						if found {
+							if _, err = pr.indexer.Del(idxName, docID); err != nil {
+								log.Errorf("raftstore-apply[cell-%d]: failed to delete doc %v from index %v\n%v",
+									d.cell.ID, docID, idxName, err)
+								return nil
+							}
+							if err = ctx.wb.Delete(getDocIDKey(docID)); err != nil {
+								log.Errorf("raftstore-apply[cell-%d]: failed to delete docID %v from storage\n%v",
+									d.cell.ID, docID, err)
+								return nil
+							}
+						}
+						pr.indexer.Insert(req.Cmd+existing_field_value_slice, idxName, docIDNew) //TODO(yzc)
+						if err = ctx.wb.Set(getDocIDKey(docIDNew), key); err != nil {
+							log.Errorf("raftstore-apply[cell-%d]: failed to add docID %v to storage\n%v",
+								d.cell.ID, docIDNew, err)
+							return nil
+						}
+					}
+				} else {
+					rsp = h(ctx, req)
+				}
+			} else if req.Type == raftcmdpb.Del {
+				cmd := redis.Command(req.Cmd)
+				args := cmd.Args()
+				for _, key := range args {
+					idxName, docID := cnemoGetIdxNameAndDocID(key) //TODO(yzc): new cnemo API
+					if docID != 0 {
+						_, err = pr.indexer.Del(idxName, docID)
+						if err != nil {
+							log.Errorf("raftstore-apply[cell-%d]: failed to delete doc %v from index %v",
+								d.cell.ID,
+								docID,
+								idxName)
+							return nil
+						}
+					}
+				}
+			} else {
+				rsp = h(ctx, req)
+			}
+			resp.Responses = append(resp.Responses, rsp)
 		}
 	}
 

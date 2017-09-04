@@ -20,6 +20,7 @@ import (
 
 	"github.com/deepfabric/elasticell/pkg/util"
 	"github.com/fagongzi/goetty"
+	"github.com/pkg/errors"
 )
 
 type memoryDataEngine struct {
@@ -41,6 +42,10 @@ func (e *memoryDataEngine) ScanSize(start []byte, end []byte, handler func(key [
 	return e.kv.Scan(start, end, func(key, value []byte) (bool, error) {
 		return handler(key, uint64(len(value)))
 	})
+}
+
+func (e *memoryDataEngine) Scan(start []byte, end []byte, handler func(key, metaVal []byte) error) error {
+	return errors.New("(*memoryDataEngine).Scan is not implemented")
 }
 
 func (e *memoryDataEngine) CreateSnapshot(path string, start, end []byte) error {

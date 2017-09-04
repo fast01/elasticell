@@ -16,6 +16,9 @@ package raftstore
 import (
 	"bytes"
 	"fmt"
+	"regexp"
+	"time"
+	"sync"
 	"time"
 
 	"github.com/Workiva/go-datastructures/queue"
@@ -82,7 +85,9 @@ type Store struct {
 	sendingSnapCount   uint32
 	reveivingSnapCount uint32
 
+	rwlock  sync.RWMutex
 	indices map[string]*pdpb.IndexDef
+	reExps  map[string]*regexp.Regexp
 }
 
 // NewStore returns store
@@ -912,17 +917,7 @@ func (s *Store) handleStoreHeartbeat() error {
 		log.SetLevel(log.Level(rsp.SetLogLevel.NewLevel))
 	}
 
-	//update indices definion, and broadcast it to all cells
-	indicesNew := make(map[string]*pdpb.IndexDef)
-	for _, idxDefNew := range rsp.Indices {
-		indicesNew[idxDefNew.GetName()] = idxDefNew
-	}
-	s.indices = indicesNew
-	err = s.replicatesMap.foreach(func(pr *PeerReplicate) (bool, error) {
-		pr.indicesC <- s.indices
-		return true, nil
-	})
-
+	err = s.handleIndicesChange(rsp.Indices)
 	return err
 }
 

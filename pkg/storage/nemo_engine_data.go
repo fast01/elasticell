@@ -49,6 +49,26 @@ func (e *nemoDataEngine) ScanSize(startKey []byte, endKey []byte, handler func(k
 	return err
 }
 
+func (e *nemoDataEngine) Scan(startKey []byte, endKey []byte, handler func(key, metaVal []byte) error) error {
+	var err error
+
+	it := e.db.NewVolumeIterator(startKey, endKey)
+	for ; it.Valid(); it.Next() {
+		//TODO(yzc): add it.MetaValue() to gonemo
+		metaVal := it.MetaValue()
+		if metaVal == nil {
+			continue
+		}
+		err = handler(it.Key(), metaVal)
+		if err != nil {
+			break
+		}
+	}
+	it.Free()
+
+	return err
+}
+
 // CreateSnapshot create a snapshot file under the giving path
 func (e *nemoDataEngine) CreateSnapshot(path string, start, end []byte) error {
 	return e.db.RawScanSaveRange(path, start, end, true)

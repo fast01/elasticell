@@ -64,9 +64,8 @@ type PeerReplicate struct {
 
 	metrics localMetrics
 
-	indicesC chan map[string]*pdpb.IndexDef
-	indices  map[string]*pdpb.IndexDef
-	indexer  *indexer.Indexer
+	nextDocID uint64
+	indexer   *indexer.Indexer
 	//TODO(yzc): queryReqC and queryRspC
 }
 
@@ -139,8 +138,6 @@ func newPeerReplicate(store *Store, cell *metapb.Cell, peerID uint64) (*PeerRepl
 	}
 	pr.peerHeartbeatsMap = newPeerHeartbeatsMap()
 
-	pr.indicesC = make(chan map[string]*pdpb.IndexDef, defaultChanBuf)
-	pr.indices = make(map[string]*pdpb.IndexDef)
 	if err = pr.loadIndices(); err != nil {
 		return nil, err
 	}
@@ -159,8 +156,6 @@ func newPeerReplicate(store *Store, cell *metapb.Cell, peerID uint64) (*PeerRepl
 	id, _ := store.runner.RunCancelableTask(pr.readyToServeRaft)
 	pr.cancelTaskIds = append(pr.cancelTaskIds, id)
 
-
-	id, _ = store.runner.RunCancelableTask(pr.readyToServeIndex)
 	pr.cancelTaskIds = append(pr.cancelTaskIds, id)
 	return pr, nil
 }
