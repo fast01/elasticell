@@ -26,7 +26,6 @@ import (
 	"github.com/deepfabric/elasticell/pkg/pd"
 	"github.com/deepfabric/elasticell/pkg/util"
 	"github.com/deepfabric/etcd/raft"
-	"github.com/deepfabric/indexer"
 	"golang.org/x/net/context"
 )
 
@@ -63,10 +62,6 @@ type PeerReplicate struct {
 	cancelTaskIds []uint64
 
 	metrics localMetrics
-
-	nextDocID uint64
-	indexer   *indexer.Indexer
-	//TODO(yzc): queryReqC and queryRspC
 }
 
 func createPeerReplicate(store *Store, cell *metapb.Cell) (*PeerReplicate, error) {
@@ -137,10 +132,6 @@ func newPeerReplicate(store *Store, cell *metapb.Cell, peerID uint64) (*PeerRepl
 		readyCnt: 0,
 	}
 	pr.peerHeartbeatsMap = newPeerHeartbeatsMap()
-
-	if err = pr.loadIndices(); err != nil {
-		return nil, err
-	}
 
 	// If this region has only one peer and I am the one, campaign directly.
 	if len(cell.Peers) == 1 && cell.Peers[0].StoreID == store.id {
@@ -367,10 +358,6 @@ func (pr *PeerReplicate) destroy() error {
 		pr.cellID)
 
 	pr.stopEventLoop()
-
-	if err := pr.indexer.Destroy(); err != nil {
-		return err
-	}
 
 	wb := pr.store.engine.NewWriteBatch()
 

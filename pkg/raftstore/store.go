@@ -32,6 +32,7 @@ import (
 	"github.com/deepfabric/elasticell/pkg/util"
 	"github.com/deepfabric/elasticell/pkg/util/uuid"
 	"github.com/deepfabric/etcd/raft/raftpb"
+	"github.com/deepfabric/indexer"
 	"github.com/pkg/errors"
 	"golang.org/x/net/context"
 )
@@ -87,6 +88,14 @@ type Store struct {
 	rwlock  sync.RWMutex
 	indices map[string]*pdpb.IndexDef
 	reExps  map[string]*regexp.Regexp
+
+	indexers map[uint64]*IndexerExt // cellid -> IndexerExt
+}
+
+//IndexerExt is per PeerReplicate
+type IndexerExt struct {
+	Indexer   *indexer.Indexer
+	NextDocID uint64
 }
 
 // NewStore returns store
