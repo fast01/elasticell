@@ -132,12 +132,15 @@ type DataEngine interface {
 	// ScanSize scans the range and execute the handler fun.
 	// returns false means end the scan.
 	ScanSize(startKey []byte, endKey []byte, handler func(key []byte, size uint64) (bool, error)) error
-	// Scan scans the range and execute the handler fun.
-	Scan(startKey []byte, endKey []byte, handler func(key, metaVal []byte) error) error
 	// CreateSnapshot create a snapshot file under the giving path
 	CreateSnapshot(path string, start, end []byte) error
 	// ApplySnapshot apply a snapshort file from giving path
 	ApplySnapshot(path string) error
+
+	// Scan scans the range and execute the handler fun.
+	Scan(startKey []byte, endKey []byte, handler func(key, metaVal []byte) error) error
+	SetMetaVal(key, metaVal []byte) error
+	GetMetaVal(key []byte) (metaVal []byte, err error)
 }
 
 // Engine is the storage of meta data

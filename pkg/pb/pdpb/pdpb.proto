@@ -270,3 +270,8 @@ message IndexRequest {
     optional IndexKeyRequest idxKey     = 1;
     optional IndexSplitRequest idxSplit = 2;
 }
+
+message KeyMetaVal {
+	optional string idxName   = 1 [(gogoproto.nullable) = false];
+	optional uint64 docID     = 2 [(gogoproto.nullable) = false];
+}

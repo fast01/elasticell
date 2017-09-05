@@ -17,6 +17,7 @@ package storage
 
 import (
 	gonemo "github.com/deepfabric/go-nemo"
+	"github.com/pkg/errors"
 )
 
 type nemoDataEngine struct {
@@ -49,13 +50,23 @@ func (e *nemoDataEngine) ScanSize(startKey []byte, endKey []byte, handler func(k
 	return err
 }
 
+// CreateSnapshot create a snapshot file under the giving path
+func (e *nemoDataEngine) CreateSnapshot(path string, start, end []byte) error {
+	return e.db.RawScanSaveRange(path, start, end, true)
+}
+
+// ApplySnapshot apply a snapshort file from giving path
+func (e *nemoDataEngine) ApplySnapshot(path string) error {
+	return e.db.IngestFile(path)
+}
+
 func (e *nemoDataEngine) Scan(startKey []byte, endKey []byte, handler func(key, metaVal []byte) error) error {
 	var err error
 
 	it := e.db.NewVolumeIterator(startKey, endKey)
 	for ; it.Valid(); it.Next() {
-		//TODO(yzc): add it.MetaValue() to gonemo
-		metaVal := it.MetaValue()
+		//metaVal := it.MetaValue()
+		var metaVal []byte
 		if metaVal == nil {
 			continue
 		}
@@ -69,12 +80,13 @@ func (e *nemoDataEngine) Scan(startKey []byte, endKey []byte, handler func(key, 
 	return err
 }
 
-// CreateSnapshot create a snapshot file under the giving path
-func (e *nemoDataEngine) CreateSnapshot(path string, start, end []byte) error {
-	return e.db.RawScanSaveRange(path, start, end, true)
+func (e *nemoDataEngine) SetMetaVal(key, metaVal []byte) error {
+	//return e.db.SetMetaVal(key, metaVal)
+	return errors.New("(*nemoDataEngine).SetMetaVal is not implemented")
 }
 
-// ApplySnapshot apply a snapshort file from giving path
-func (e *nemoDataEngine) ApplySnapshot(path string) error {
-	return e.db.IngestFile(path)
+func (e *nemoDataEngine) GetMetaVal(key []byte) (metaVal []byte, err error) {
+	//return e.db.GEtMetaVal(key)
+	err = errors.New("(*nemoDataEngine).GetMetaVal is not implemented")
+	return
 }

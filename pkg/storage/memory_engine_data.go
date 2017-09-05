@@ -48,6 +48,15 @@ func (e *memoryDataEngine) Scan(start []byte, end []byte, handler func(key, meta
 	return errors.New("(*memoryDataEngine).Scan is not implemented")
 }
 
+func (e *memoryDataEngine) SetMetaVal(key, metaVal []byte) error {
+	return errors.New("(*memoryDataEngine).SetMetaVal is not implemented")
+}
+
+func (e *memoryDataEngine) GetMetaVal(key []byte) (metaVal []byte, err error) {
+	err = errors.New("(*memoryDataEngine).SetMetaVal is not implemented")
+	return
+}
+
 func (e *memoryDataEngine) CreateSnapshot(path string, start, end []byte) error {
 	err := os.MkdirAll(path, os.ModeDir)
 	if err != nil {

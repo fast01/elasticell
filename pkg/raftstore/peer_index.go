@@ -38,11 +38,11 @@ func (pr *PeerReplicate) allocateDocID() (docID uint64, err error) {
 
 func (pr *PeerReplicate) loadIndices() (err error) {
 	indexerConf := &indexer.Conf{
-		T0mCap:   pr.store.cfg.Index.T0mCap,
-		LeafCap:  pr.store.cfg.Index.LeafCap,
-		IntraCap: pr.store.cfg.Index.IntraCap,
+		T0mCap:   globalCfg.Index.T0mCap,
+		LeafCap:  globalCfg.Index.LeafCap,
+		IntraCap: globalCfg.Index.IntraCap,
 	}
-	indicesDir := filepath.Join(pr.store.cfg.Index.IndexDataPath, fmt.Sprintf("%d", pr.cellID))
+	indicesDir := filepath.Join(globalCfg.Index.IndexDataPath, fmt.Sprintf("%d", pr.cellID))
 	pr.indexer, err = indexer.NewIndexer(indicesDir, indexerConf, false)
 	return
 }

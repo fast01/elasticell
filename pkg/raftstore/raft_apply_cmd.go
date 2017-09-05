@@ -307,31 +307,33 @@ func (d *applyDelegate) doExecSplit(ctx *execContext) (*raftcmdpb.RaftCMDRespons
 		},
 	}
 
+	if err = d.doExecSplitIndex(&newCell); err != nil {
+		log.Errorf("raftstore-apply[cell-%d]: doExecSplitIndex failed\n%+v",
+			d.cell.ID, err)
+	}
+	ctx.metrics.admin.splitSucceed++
+
+	return rsp, result, nil
+}
+
+func (d *applyDelegate) doExecSplitIndex(newCell *metapb.Cell) (err error) {
 	listEng := d.store.engine.GetListEngine()
 	idxReqQueueKey := getIdxReqQueueKey()
 	idxReq := &pdpb.IndexRequest{
 		IdxSplit: &pdpb.IndexSplitRequest{
 			LeftCellID:  d.cell.GetID(),
 			RightCellID: newCell.GetID(),
-			RightStart:  req.SplitKey,
-			RightEnd:    d.cell.GetEnd(),
+			RightStart:  newCell.GetStart(),
+			RightEnd:    newCell.GetEnd(),
 		},
 	}
 	var idxReqB []byte
 	idxReqB, err = idxReq.Marshal()
 	if err != nil {
-		log.Errorf("raftstore-apply[cell-%d]: failed to marshal %v\n%+v",
-			d.cell.ID, idxReq, err)
+		return
 	}
 	_, err = listEng.RPush(idxReqQueueKey, idxReqB)
-	if err != nil {
-		log.Errorf("raftstore-apply[cell-%d]: failed to RPush %v\n%+v",
-			d.cell.ID, idxReq, err)
-	}
-
-	ctx.metrics.admin.splitSucceed++
-
-	return rsp, result, nil
+	return
 }
 
 func (d *applyDelegate) doExecRaftGC(ctx *execContext) (*raftcmdpb.RaftCMDResponse, *execResult, error) {
@@ -388,56 +390,58 @@ func (d *applyDelegate) execWriteRequest(ctx *execContext) *raftcmdpb.RaftCMDRes
 		if h, ok := d.store.redisWriteHandles[req.Type]; ok {
 			rsp := h(ctx, req)
 			resp.Responses = append(resp.Responses, rsp)
-			if (req.Type == raftcmdpb.HMSet || req.Type == raftcmdpb.HSet || req.Type == raftcmdpb.Del) && (rsp.ErrorResult == nil && len(rsp.ErrorResults) == 0) {
-				cmd := redis.Command(req.Cmd)
-				args := cmd.Args()
-				end := 1
-				if req.Type == raftcmdpb.Del {
-					end = len(args)
-				}
-				listEng := d.store.engine.GetListEngine()
-				idxReqQueueKey := getIdxReqQueueKey()
-				for i := 0; i < end; i++ {
-					key := args[i]
-					var idxName string
-					for name, reExp := range d.store.reExps {
-						matched := reExp.Match(key)
-						if matched {
-							idxName = name
-							//PeerReplicate <- idxName, args[1:]; allocate or reuse docID
-							break
-						}
-					}
-					if idxName != "" {
-						idxReq := &pdpb.IndexRequest{}
-						idxReq.IdxKey = &pdpb.IndexKeyRequest{
-							CellID:   d.cell.ID,
-							IdxName:  idxName,
-							UserKeys: [][]byte{key},
-							IsDel:    false,
-						}
-						if req.Type == raftcmdpb.Del {
-							idxReq.IdxKey.IsDel = true
-						}
-						var idxReqB []byte
-						idxReqB, err = idxReq.Marshal()
-						if err != nil {
-							log.Errorf("raftstore-apply[cell-%d]: failed to marshal %v\n%+v",
-								d.cell.ID, idxReq, err)
-							continue
-						}
-						_, err = listEng.RPush(idxReqQueueKey, idxReqB)
-						if err != nil {
-							log.Errorf("raftstore-apply[cell-%d]: failed to RPush %v\n%+v",
-								d.cell.ID, idxReq, err)
-						}
-					}
-				}
+			if err = d.execWriteRequestIndex(req, rsp); err != nil {
+				log.Errorf("raftstore-apply[cell-%d]: execWriteRequestIndex failed\n%+v",
+					d.cell.ID, err)
 			}
 		}
 	}
 
 	return resp
+}
+
+func (d *applyDelegate) execWriteRequestIndex(req *raftcmdpb.Request, rsp *raftcmdpb.Response) (err error) {
+	if (req.Type == raftcmdpb.HMSet || req.Type == raftcmdpb.HSet || req.Type == raftcmdpb.Del) && (rsp.ErrorResult == nil && len(rsp.ErrorResults) == 0) {
+		cmd := redis.Command(req.Cmd)
+		args := cmd.Args()
+		end := 1
+		if req.Type == raftcmdpb.Del {
+			end = len(args)
+		}
+		listEng := d.store.engine.GetListEngine()
+		idxReqQueueKey := getIdxReqQueueKey()
+		for i := 0; i < end; i++ {
+			key := args[i]
+			var idxName string
+			for name, reExp := range d.store.reExps {
+				matched := reExp.Match(key)
+				if matched {
+					idxName = name
+					break
+				}
+			}
+			if idxName != "" {
+				idxReq := &pdpb.IndexRequest{}
+				idxReq.IdxKey = &pdpb.IndexKeyRequest{
+					CellID:   d.cell.ID,
+					IdxName:  idxName,
+					UserKeys: [][]byte{key},
+					IsDel:    false,
+				}
+				if req.Type == raftcmdpb.Del {
+					idxReq.IdxKey.IsDel = true
+				}
+				var idxReqB []byte
+				if idxReqB, err = idxReq.Marshal(); err != nil {
+					return
+				}
+				if _, err = listEng.RPush(idxReqQueueKey, idxReqB); err != nil {
+					return
+				}
+			}
+		}
+	}
+	return
 }
 
 func (pr *PeerReplicate) doExecReadCmd(cmd *cmd) {
